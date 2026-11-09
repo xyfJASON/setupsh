@@ -31,23 +31,29 @@ as_root() {
     fi
 }
 
-# upsert_block FILE NAME CONTENT [COMMENT_CHAR]
+# upsert_block FILE NAME CONTENT [COMMENT_CHAR] [POSITION]
 # Write CONTENT into FILE between "# >>> setupsh NAME >>>" / "# <<< setupsh NAME <<<"
-# markers, replacing any previous block with the same NAME.
+# markers, replacing any previous block with the same NAME. POSITION is "bottom"
+# (default) or "top".
 upsert_block() {
-    local file=$1 name=$2 content=$3 c=${4:-#}
+    local file=$1 name=$2 content=$3 c=${4:-#} pos=${5:-bottom}
     local begin="${c} >>> setupsh ${name} >>>"
     local end="${c} <<< setupsh ${name} <<<"
     local tmp
 
     touch "$file"
     tmp=$(mktemp)
+    if [[ $pos == top ]]; then
+        printf '%s\n%s\n%s\n' "$begin" "$content" "$end" > "$tmp"
+    fi
     awk -v b="$begin" -v e="$end" '
         $0 == b { skip = 1; next }
         $0 == e { skip = 0; next }
         !skip
-    ' "$file" > "$tmp"
-    printf '%s\n%s\n%s\n' "$begin" "$content" "$end" >> "$tmp"
+    ' "$file" >> "$tmp"
+    if [[ $pos != top ]]; then
+        printf '%s\n%s\n%s\n' "$begin" "$content" "$end" >> "$tmp"
+    fi
     # cat instead of mv so symlinks / permissions of FILE are preserved
     cat "$tmp" > "$file"
     rm -f "$tmp"
@@ -191,6 +197,67 @@ setup_zsh() {
 }
 
 # ----------------------------------------------------------------------------
+# powerlevel10k
+# ----------------------------------------------------------------------------
+
+P10K_CONFIG_URL="https://raw.githubusercontent.com/xyfJASON/setupsh/main/p10k.zsh"
+
+setup_p10k() {
+    info "setting up powerlevel10k"
+
+    local custom="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
+    if [[ ! -d $custom/themes/powerlevel10k ]]; then
+        info "cloning powerlevel10k"
+        git clone --depth=1 https://github.com/romkatv/powerlevel10k "$custom/themes/powerlevel10k"
+    else
+        info "powerlevel10k already installed"
+    fi
+
+    # set ZSH_THEME in ~/.zshrc (must stay before oh-my-zsh.sh is sourced)
+    local zshrc="$HOME/.zshrc" tmp
+    if grep -q '^ZSH_THEME=' "$zshrc"; then
+        tmp=$(mktemp)
+        awk '/^ZSH_THEME=/ { print "ZSH_THEME=\"powerlevel10k/powerlevel10k\""; next } { print }' "$zshrc" > "$tmp"
+        cat "$tmp" > "$zshrc"
+        rm -f "$tmp"
+    else
+        warn "no 'ZSH_THEME=' line found in $zshrc; please set manually: ZSH_THEME=\"powerlevel10k/powerlevel10k\""
+    fi
+
+    # install the saved config: prefer a p10k.zsh next to this script (local
+    # checkout), otherwise download it (curl | bash)
+    local src="" dir
+    dir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd) || true
+    tmp=$(mktemp)
+    if [[ -n $dir && -f $dir/p10k.zsh ]]; then
+        src="$dir/p10k.zsh"
+        cp "$src" "$tmp"
+    elif curl -fsSL "$P10K_CONFIG_URL" -o "$tmp"; then
+        src="$P10K_CONFIG_URL"
+    fi
+    if [[ -n $src ]]; then
+        if [[ -f $HOME/.p10k.zsh ]] && ! cmp -s "$tmp" "$HOME/.p10k.zsh"; then
+            info "backing up existing ~/.p10k.zsh to ~/.p10k.zsh.bak"
+            cp "$HOME/.p10k.zsh" "$HOME/.p10k.zsh.bak"
+        fi
+        info "installing ~/.p10k.zsh from $src"
+        cat "$tmp" > "$HOME/.p10k.zsh"
+    else
+        warn "could not fetch p10k config; run 'p10k configure' to create one"
+    fi
+    rm -f "$tmp"
+
+    upsert_block "$zshrc" p10k-instant-prompt "$(cat <<'EOF'
+# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+EOF
+)" '#' top
+    upsert_block "$zshrc" p10k '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
+}
+
+# ----------------------------------------------------------------------------
 # ~/.userrc
 # ----------------------------------------------------------------------------
 
@@ -304,6 +371,7 @@ main() {
     ensure_pkgs git curl
 
     setup_zsh
+    setup_p10k
     setup_userrc
     setup_eza
     setup_vim

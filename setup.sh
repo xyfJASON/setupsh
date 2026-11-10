@@ -439,8 +439,11 @@ setup_conda() {
         bash "$tmp" -b -p "$HOME/miniconda3"
         rm -f "$tmp"
         conda="$HOME/miniconda3/bin/conda"
-        "$conda" init zsh
     fi
+
+    # run even if conda was already installed: it may only have been
+    # initialized for bash. conda init is a no-op if ~/.zshrc is already set up.
+    "$conda" init zsh
 
     # newer conda renamed auto_activate_base to auto_activate
     "$conda" config --set auto_activate false 2>/dev/null \

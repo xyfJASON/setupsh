@@ -139,7 +139,7 @@ ensure_pkgs() {
 # zsh + oh-my-zsh
 # ----------------------------------------------------------------------------
 
-ZSH_PLUGINS="git z colored-man-pages safe-paste zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search"
+ZSH_PLUGINS="git z colored-man-pages safe-paste conda-zsh-completion zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search"
 
 setup_zsh() {
     info "setting up zsh"
@@ -157,6 +157,7 @@ setup_zsh() {
     local custom="${ZSH_CUSTOM:-$omz/custom}"
     local repo name
     for repo in \
+        https://github.com/conda-incubator/conda-zsh-completion \
         https://github.com/zsh-users/zsh-autosuggestions \
         https://github.com/zsh-users/zsh-syntax-highlighting \
         https://github.com/zsh-users/zsh-history-substring-search
@@ -186,6 +187,20 @@ setup_zsh() {
     if [[ "$(basename "${SHELL:-}")" != zsh ]]; then
         if ! grep -qx "$zsh_path" /etc/shells 2>/dev/null; then
             echo "$zsh_path" | as_root tee -a /etc/shells >/dev/null || true
+        fi
+        if ! has chsh; then
+            # chsh lives in a different package depending on the distro
+            local chsh_pkg=""
+            case $PKG in
+                apt)     chsh_pkg=passwd ;;
+                dnf|yum) chsh_pkg=util-linux-user ;;
+                pacman)  chsh_pkg=util-linux ;;
+                zypper)  chsh_pkg=shadow ;;
+            esac
+            if [[ -n $chsh_pkg ]]; then
+                info "chsh not found, installing $chsh_pkg"
+                pkg_install "$chsh_pkg" || warn "failed to install $chsh_pkg"
+            fi
         fi
         info "changing login shell to $zsh_path"
         if [[ $EUID -eq 0 ]]; then
@@ -338,6 +353,7 @@ setup_tmux() {
     upsert_block "$HOME/.tmux.conf" tmux "$(cat <<'EOF'
 set -g default-terminal "screen-256color"
 set -g mouse on
+set-option -s set-clipboard on
 EOF
 )"
 
@@ -362,6 +378,82 @@ setup_uv() {
 }
 
 # ----------------------------------------------------------------------------
+# nvitop (GPU machines only)
+# ----------------------------------------------------------------------------
+
+setup_nvitop() {
+    has nvidia-smi || return 0
+    info "setting up nvitop"
+    local uv
+    uv=$(command -v uv || echo "$HOME/.local/bin/uv")
+    if [[ ! -x $uv ]]; then
+        warn "uv not found; skipping nvitop"
+        return 0
+    fi
+    if "$uv" tool list 2>/dev/null | grep -q '^nvitop '; then
+        info "nvitop already installed"
+    else
+        "$uv" tool install nvitop
+    fi
+}
+
+# ----------------------------------------------------------------------------
+# conda
+# ----------------------------------------------------------------------------
+
+# Print the path of an existing conda executable, if any. conda is usually a
+# shell function set up by `conda init`, so it's not on PATH in this script.
+find_conda() {
+    local c
+    for c in "${CONDA_EXE:-}" "$(command -v conda || true)" \
+        "$HOME"/{miniconda3,anaconda3,miniforge3}/bin/conda /opt/conda/bin/conda; do
+        if [[ -n $c && -x $c ]]; then
+            echo "$c"
+            return 0
+        fi
+    done
+    return 1
+}
+
+setup_conda() {
+    info "setting up conda"
+    local conda
+    if conda=$(find_conda); then
+        info "conda already installed at $conda"
+    else
+        local os arch
+        case $OS in
+            macos) os=MacOSX ;;
+            linux) os=Linux ;;
+        esac
+        case "$(uname -m)" in
+            x86_64)  arch=x86_64 ;;
+            aarch64) arch=aarch64 ;;
+            arm64)   arch=arm64 ;;
+            *) die "unsupported architecture for miniconda: $(uname -m)" ;;
+        esac
+        local tmp
+        tmp=$(mktemp)
+        info "installing miniconda to ~/miniconda3"
+        curl -fsSL "https://repo.anaconda.com/miniconda/Miniconda3-latest-${os}-${arch}.sh" -o "$tmp"
+        bash "$tmp" -b -p "$HOME/miniconda3"
+        rm -f "$tmp"
+        conda="$HOME/miniconda3/bin/conda"
+        "$conda" init zsh
+    fi
+
+    # newer conda renamed auto_activate_base to auto_activate
+    "$conda" config --set auto_activate false 2>/dev/null \
+        || "$conda" config --set auto_activate_base false
+
+    upsert_block "$HOME/.userrc" conda "$(cat <<'EOF'
+alias act="conda activate"
+alias deact="conda deactivate"
+EOF
+)"
+}
+
+# ----------------------------------------------------------------------------
 # main
 # ----------------------------------------------------------------------------
 
@@ -377,6 +469,8 @@ main() {
     setup_vim
     setup_tmux
     setup_uv
+    setup_nvitop
+    setup_conda
 
     info "done! start a new shell (or run 'exec zsh') to pick up the changes."
 }

@@ -451,7 +451,11 @@ setup_conda() {
 
     upsert_block "$HOME/.userrc" conda "$(cat <<'EOF'
 alias act="conda activate"
-alias deact="conda deactivate"
+deact() {
+    while (( ${CONDA_SHLVL:-0} > 0 )); do
+        conda deactivate || return
+    done
+}
 EOF
 )"
 }

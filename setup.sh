@@ -280,6 +280,11 @@ setup_userrc() {
     info "setting up ~/.userrc"
     touch "$HOME/.userrc"
     upsert_block "$HOME/.zshrc" userrc '[ -f ~/.userrc ] && source ~/.userrc'
+    upsert_block "$HOME/.userrc" history-substring-search "$(cat <<'EOF'
+bindkey '^[OA' history-substring-search-up
+bindkey '^[OB' history-substring-search-down
+EOF
+)"
 
     if has nvidia-smi; then
         info "GPU machine detected, adding nvidia-smi alias"

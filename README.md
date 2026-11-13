@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/xyfJASON/setupsh/main/setup.sh | ba
 | Component | Details |
 |-----------|---------|
 | **zsh** | Installs zsh, [oh-my-zsh](https://ohmyz.sh), and plugins `zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-history-substring-search`; sets `plugins=(git z colored-man-pages safe-paste zsh-autosuggestions zsh-syntax-highlighting zsh-history-substring-search)`; makes zsh the login shell |
-| **~/.userrc** | Creates it and sources it from `~/.zshrc`; adds `alias nv="watch -n 0.1 nvidia-smi"` if `nvidia-smi` is present |
+| **~/.userrc** | Creates it and sources it from `~/.zshrc`; binds ↑/↓ (`^[OA` / `^[OB`) to `history-substring-search-up/down`; adds `alias nv="watch -n 0.1 nvidia-smi"` if `nvidia-smi` is present |
 | **eza** | Homebrew on macOS, latest release binary on Linux (x86_64 / aarch64); adds `ls`, `l`, `ll`, `lt`, `lt2`, `lt3` aliases |
 | **vim** | Writes `~/.vimrc` (line numbers, 4-space indent, syntax on) |
 | **tmux** | Installs tmux, writes `~/.tmux.conf` (256 colors, mouse), adds `ta` / `tn` aliases |

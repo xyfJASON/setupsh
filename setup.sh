@@ -437,12 +437,13 @@ setup_conda() {
             arm64)   arch=arm64 ;;
             *) die "unsupported architecture for miniconda: $(uname -m)" ;;
         esac
+        # the installer refuses to run unless its filename ends in .sh
         local tmp
-        tmp=$(mktemp)
+        tmp=$(mktemp -d)
         info "installing miniconda to ~/miniconda3"
-        curl -fsSL "https://repo.anaconda.com/miniconda/Miniconda3-latest-${os}-${arch}.sh" -o "$tmp"
-        bash "$tmp" -b -p "$HOME/miniconda3"
-        rm -f "$tmp"
+        curl -fsSL "https://repo.anaconda.com/miniconda/Miniconda3-latest-${os}-${arch}.sh" -o "$tmp/miniconda.sh"
+        bash "$tmp/miniconda.sh" -b -p "$HOME/miniconda3"
+        rm -rf "$tmp"
         conda="$HOME/miniconda3/bin/conda"
     fi
 

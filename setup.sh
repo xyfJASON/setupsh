@@ -145,13 +145,29 @@ setup_zsh() {
     info "setting up zsh"
     ensure_pkgs zsh
 
-    local omz="$HOME/.oh-my-zsh"
-    if [[ ! -d $omz ]]; then
+    local omz="$HOME/.oh-my-zsh" installer
+    if [[ ! -f $omz/oh-my-zsh.sh ]]; then
+        [[ -e $omz ]] && die "$omz exists but is not a complete oh-my-zsh install; remove it and re-run"
         info "installing oh-my-zsh"
-        RUNZSH=no CHSH=no KEEP_ZSHRC=yes \
-            sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        # download first so a failed download aborts the script (set -e)
+        installer=$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)
+        ZSH="$omz" RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$installer" "" --unattended
     else
         info "oh-my-zsh already installed"
+    fi
+
+    # The installer keeps any existing ~/.zshrc (KEEP_ZSHRC=yes), and new machines
+    # often ship one without oh-my-zsh. If so, back it up and use the template.
+    local zshrc="$HOME/.zshrc" tmp
+    if ! grep -q 'oh-my-zsh\.sh' "$zshrc" 2>/dev/null; then
+        if [[ -e $zshrc ]]; then
+            local backup
+            backup="$zshrc.pre-oh-my-zsh.$(date +%Y%m%d%H%M%S)"
+            info "$zshrc does not load oh-my-zsh; backing it up to $backup"
+            cp "$zshrc" "$backup"
+        fi
+        info "writing oh-my-zsh template to $zshrc"
+        cat "$omz/templates/zshrc.zsh-template" > "$zshrc"
     fi
 
     local custom="${ZSH_CUSTOM:-$omz/custom}"
@@ -170,8 +186,6 @@ setup_zsh() {
     done
 
     # set plugins=(...) in ~/.zshrc (replaces the single-line default from the template)
-    local zshrc="$HOME/.zshrc" tmp
-    touch "$zshrc"
     if grep -q '^plugins=(.*)' "$zshrc"; then
         tmp=$(mktemp)
         awk -v p="plugins=(${ZSH_PLUGINS})" '/^plugins=\(.*\)/ { print p; next } { print }' "$zshrc" > "$tmp"

@@ -135,6 +135,46 @@ ensure_pkgs() {
     fi
 }
 
+# Package that provides command CMD for the current package manager.
+tool_pkg() {
+    case "$1:$PKG" in
+        dust:apt|dust:dnf|dust:yum) echo du-dust ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# install_tool CMD RELEASE_FN
+# Install CMD with the system package manager. On Linux, if that fails (e.g. the
+# distro doesn't package it), fall back to RELEASE_FN, which downloads a release.
+install_tool() {
+    local cmd=$1 release_fn=$2 pkg
+    if has "$cmd"; then
+        info "$cmd already installed"
+        return 0
+    fi
+    pkg=$(tool_pkg "$cmd")
+    info "installing $pkg with $PKG"
+    if [[ $OS == macos ]]; then
+        pkg_install "$pkg"
+        return
+    fi
+    if pkg_install "$pkg" && has "$cmd"; then
+        return 0
+    fi
+    warn "could not install $pkg with $PKG; installing the latest GitHub release instead"
+    "$release_fn"
+}
+
+# Print the latest release tag (e.g. v1.2.3) of GitHub repo OWNER/NAME. Uses the
+# /releases/latest redirect rather than the API, which is rate-limited.
+latest_tag() {
+    local tag
+    tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest")
+    tag=${tag##*/}
+    [[ $tag == v* ]] || die "could not determine latest release of $1"
+    echo "$tag"
+}
+
 # ----------------------------------------------------------------------------
 # zsh + oh-my-zsh
 # ----------------------------------------------------------------------------
@@ -310,28 +350,23 @@ EOF
 # eza
 # ----------------------------------------------------------------------------
 
+eza_from_release() {
+    local arch tmpdir
+    case "$(uname -m)" in
+        x86_64)        arch=x86_64 ;;
+        aarch64|arm64) arch=aarch64 ;;
+        *) die "unsupported architecture for eza: $(uname -m)" ;;
+    esac
+    tmpdir=$(mktemp -d)
+    curl -fsSL "https://github.com/eza-community/eza/releases/latest/download/eza_${arch}-unknown-linux-gnu.tar.gz" \
+        | tar xz -C "$tmpdir"
+    as_root install -m 0755 "$tmpdir/eza" /usr/local/bin/eza
+    rm -rf "$tmpdir"
+}
+
 setup_eza() {
     info "setting up eza"
-    if ! has eza; then
-        if [[ $OS == macos ]]; then
-            brew install eza
-        else
-            local arch
-            case "$(uname -m)" in
-                x86_64)        arch=x86_64 ;;
-                aarch64|arm64) arch=aarch64 ;;
-                *) die "unsupported architecture for eza: $(uname -m)" ;;
-            esac
-            local tmpdir
-            tmpdir=$(mktemp -d)
-            curl -fsSL "https://github.com/eza-community/eza/releases/latest/download/eza_${arch}-unknown-linux-gnu.tar.gz" \
-                | tar xz -C "$tmpdir"
-            as_root install -m 0755 "$tmpdir/eza" /usr/local/bin/eza
-            rm -rf "$tmpdir"
-        fi
-    else
-        info "eza already installed"
-    fi
+    install_tool eza eza_from_release
 
     upsert_block "$HOME/.userrc" eza "$(cat <<'EOF'
 alias ls="eza"
@@ -342,6 +377,58 @@ alias lt2="eza -lah --tree --level=2"
 alias lt3="eza -lah --tree --level=3"
 EOF
 )"
+}
+
+# ----------------------------------------------------------------------------
+# dust
+# ----------------------------------------------------------------------------
+
+dust_from_release() {
+    local arch tag name tmpdir
+    case "$(uname -m)" in
+        x86_64)        arch=x86_64 ;;
+        aarch64|arm64) arch=aarch64 ;;
+        *) die "unsupported architecture for dust: $(uname -m)" ;;
+    esac
+    # asset names contain the version; the musl build is statically linked,
+    # so it runs on old glibc too
+    tag=$(latest_tag bootandy/dust)
+    name="dust-${tag}-${arch}-unknown-linux-musl"
+    tmpdir=$(mktemp -d)
+    curl -fsSL "https://github.com/bootandy/dust/releases/download/${tag}/${name}.tar.gz" \
+        | tar xz -C "$tmpdir"
+    as_root install -m 0755 "$tmpdir/$name/dust" /usr/local/bin/dust
+    rm -rf "$tmpdir"
+}
+
+setup_dust() {
+    info "setting up dust"
+    install_tool dust dust_from_release
+}
+
+# ----------------------------------------------------------------------------
+# duf
+# ----------------------------------------------------------------------------
+
+duf_from_release() {
+    local arch tag tmpdir
+    case "$(uname -m)" in
+        x86_64)        arch=x86_64 ;;
+        aarch64|arm64) arch=arm64 ;;
+        *) die "unsupported architecture for duf: $(uname -m)" ;;
+    esac
+    # asset names contain the version (without the leading "v")
+    tag=$(latest_tag muesli/duf)
+    tmpdir=$(mktemp -d)
+    curl -fsSL "https://github.com/muesli/duf/releases/download/${tag}/duf_${tag#v}_linux_${arch}.tar.gz" \
+        | tar xz -C "$tmpdir"
+    as_root install -m 0755 "$tmpdir/duf" /usr/local/bin/duf
+    rm -rf "$tmpdir"
+}
+
+setup_duf() {
+    info "setting up duf"
+    install_tool duf duf_from_release
 }
 
 # ----------------------------------------------------------------------------
@@ -493,6 +580,8 @@ main() {
     setup_p10k
     setup_userrc
     setup_eza
+    setup_dust
+    setup_duf
     setup_vim
     setup_tmux
     setup_uv
